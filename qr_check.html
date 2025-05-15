@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>QR Kod ile Giriş</title>
+  <script src="https://unpkg.com/html5-qrcode"></script>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      text-align: center;
+      padding: 20px;
+      background-color: #f8f9fa;
+    }
+    #result {
+      margin-top: 20px;
+      padding: 15px;
+      font-size: 1.2rem;
+      border-radius: 10px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    .bg-success-subtle {
+      background-color: #d1e7dd;
+      color: #0f5132;
+    }
+    .bg-danger-subtle {
+      background-color: #f8d7da;
+      color: #842029;
+    }
+    #errorLog {
+      margin-top: 20px;
+      padding: 10px;
+      background-color: #fff;
+      border: 1px solid #ddd;
+      border-radius: 5px;
+      text-align: left;
+      display: none;
+      max-height: 200px;
+      overflow-y: auto;
+    }
+    .loading {
+      display: none;
+      margin: 20px auto;
+      text-align: center;
+    }
+    .loading::after {
+      content: "Yükleniyor...";
+      animation: dots 1.5s infinite;
+    }
+    @keyframes dots {
+      0%, 20% { content: "Yükleniyor."; }
+      40% { content: "Yükleniyor.."; }
+      60% { content: "Yükleniyor..."; }
+      80%, 100% { content: "Yükleniyor...."; }
+    }
+  </style>
+</head>
+<body>
+
+  <h2>📷 QR Kod ile Etkinlik Girişi</h2>
+  <div id="reader" style="width: 300px; margin: auto;"></div>
+  <div id="result"></div>
+  <div id="errorLog"></div>
+  <div id="loading" class="loading"></div>
+
+  <script>
+    const sheetID = "1AdnG6Zi2mZPk9iyG3_C9VoRz0YDZEVWjSlrcLeMSsT0";
+    const sheetURL = `https://opensheet.elk.sh/${sheetID}/1`;
+    const result = document.getElementById("result");
+    const errorLog = document.getElementById("errorLog");
+    const loading = document.getElementById("loading");
+
+    function showError(message) {
+      errorLog.style.display = "block";
+      const time = new Date().toLocaleTimeString();
+      errorLog.innerHTML += `<div>[${time}] ${message}</div>`;
+      console.error(message);
+    }
+
+    function showLoading() {
+      loading.style.display = "block";
+    }
+
+    function hideLoading() {
+      loading.style.display = "none";
+    }
+
+    function beep(success) {
+      try {
+        const audio = new Audio(success ? "success.mp3" : "fail.mp3");
+        audio.play().catch(err => {
+          showError(`Ses dosyası çalınamadı: ${err.message}`);
+        });
+      } catch (err) {
+        showError(`Ses dosyası yüklenemedi: ${err.message}`);
+      }
+    }
+
+    // Google Sheets verilerini al
+    showLoading();
+    fetch(sheetURL)
+      .then(res => {
+        if (!res.ok) {
+          throw new Error(`HTTP error! status: ${res.status}`);
+        }
+        return res.json();
+      })
+      .then(data => {
+        hideLoading();
+        if (!data || data.length === 0) {
+          throw new Error("Veri bulunamadı veya boş");
+        }
+
+        const kabulEdilenler = data
+          .filter(row => row["Onay Durumu"]?.trim().toUpperCase() === "EVET")
+          .map(row => ({
+            adSoyad: `${row["Ad"]?.trim()} ${row["Soyad"]?.trim()}`,
+            fullData: `${row["Ad"]?.trim().toLowerCase()} ${row["Soyad"]?.trim().toLowerCase()} ${row["Mail"]?.trim().toLowerCase()}`
+          }));
+
+        if (kabulEdilenler.length === 0) {
+          throw new Error("Onaylı kayıt bulunamadı");
+        }
+
+        console.log("✅ Kabul edilenler:", kabulEdilenler);
+
+        const qrScanner = new Html5QrcodeScanner("reader", {
+          fps: 10,
+          qrbox: 250,
+          aspectRatio: 1.0
+        });
+
+        qrScanner.render(decodedText => {
+          const cleanedText = decodedText.trim().toLowerCase();
+          const found = kabulEdilenler.find(person => person.fullData === cleanedText);
+
+          if (found) {
+            result.innerHTML = `✅ <strong>${found.adSoyad}</strong><br>GİRİŞİNİZ ONAYLANDI`;
+            result.className = "bg-success-subtle";
+            beep(true);
+          } else {
+            result.innerHTML = "❌ <strong>GİRİŞ REDDEDİLDİ</strong><br><small>Kayıt bulunamadı veya onaylanmamış.</small>";
+            result.className = "bg-danger-subtle";
+            beep(false);
+          }
+        });
+      })
+      .catch(err => {
+        hideLoading();
+        console.error("Hata:", err);
+        showError(`Veri alınamadı: ${err.message}`);
+        result.innerHTML = "❌ Google Sheet verisi alınamadı.<br><small>Lütfen sayfayı yenileyin veya daha sonra tekrar deneyin.</small>";
+        result.className = "bg-danger-subtle";
+      });
+  </script>
+
+</body>
+</html>
